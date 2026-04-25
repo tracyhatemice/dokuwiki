@@ -42,6 +42,8 @@ class auth_plugin_authldap extends AuthPlugin
 
         // Add the capabilities to change the password
         $this->cando['modPass'] = $this->getConf('modPass');
+        // Add the capability to change the display name
+        $this->cando['modName'] = $this->getConf('modPass'); // reuse modPass setting as it requires the same LDAP write access
     }
 
     /**
@@ -243,7 +245,7 @@ class auth_plugin_authldap extends AuthPlugin
         $info['dn'] = $user_result['dn'];
         $info['gid'] = $user_result['gidnumber'][0] ?? null;
         $info['mail'] = $user_result['mail'][0] ?? null;
-        $info['name'] = $user_result['cn'][0];
+        $info['name'] = $user_result['displayname'][0];
         $info['grps'] = [];
 
         // overwrite if other attribs are specified.
@@ -315,7 +317,7 @@ class auth_plugin_authldap extends AuthPlugin
     }
 
     /**
-     * Definition of the function modifyUser in order to modify the password
+     * Definition of the function modifyUser in order to modify the password and/or display name
      *
      * @param string $user nick of the user to be changed
      * @param array $changes array of field/value pairs to be changed (password will be clear text)
@@ -365,23 +367,46 @@ class auth_plugin_authldap extends AuthPlugin
             return false; // no otherway
         }
 
-        // Generate the salted hashed password for LDAP
-        if ($this->getConf('modPassPlain')) {
-            $hash = $changes['pass'];
-        } else {
-            $phash = new PassHash();
-            $hash = $phash->hash_ssha($changes['pass']);
+        // Handle password change
+        if (isset($changes['pass'])) {
+            // Generate the salted hashed password for LDAP
+            if ($this->getConf('modPassPlain')) {
+                $hash = $changes['pass'];
+            } else {
+                $phash = new PassHash();
+                $hash = $phash->hash_ssha($changes['pass']);
+            }
+
+            // change the password
+            if (!@ldap_mod_replace($this->con, $dn, ['userpassword' => $hash])) {
+                $this->debug(
+                    'LDAP mod replace failed: ' . hsc($dn) . ': ' . hsc(ldap_error($this->con)),
+                    0,
+                    __LINE__,
+                    __FILE__
+                );
+                return false;
+            }
         }
 
-        // change the password
-        if (!@ldap_mod_replace($this->con, $dn, ['userpassword' => $hash])) {
-            $this->debug(
-                'LDAP mod replace failed: ' . hsc($dn) . ': ' . hsc(ldap_error($this->con)),
-                0,
-                __LINE__,
-                __FILE__
-            );
-            return false;
+        // Handle display name change
+        if (isset($changes['name'])) {
+            // Determine the LDAP attribute for the name
+            $nameattr = 'displayname'; // default LDAP attribute for display name
+            $mapping = $this->getConf('mapping');
+            if (is_array($mapping) && isset($mapping['name']) && !is_array($mapping['name'])) {
+                $nameattr = $mapping['name'];
+            }
+
+            if (!@ldap_mod_replace($this->con, $dn, [$nameattr => $changes['name']])) {
+                $this->debug(
+                    'LDAP mod replace failed for name: ' . hsc($dn) . ': ' . hsc(ldap_error($this->con)),
+                    0,
+                    __LINE__,
+                    __FILE__
+                );
+                return false;
+            }
         }
 
         return true;
