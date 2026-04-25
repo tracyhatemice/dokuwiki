@@ -26,6 +26,9 @@ class auth_plugin_authldap extends AuthPlugin
     /* @var array $pattern User filter pattern */
     protected $pattern;
 
+    /* @var array $userCache Per-user data cache, request-scoped, keyed by username */
+    protected $userCache = [];
+
     /**
      * Constructor
      */
@@ -156,7 +159,76 @@ class auth_plugin_authldap extends AuthPlugin
     public function getUserData($user, $requireGroups = true)
     {
         if (!is_string($user) || $user == '') return false;
-        return $this->fetchUserData($user);
+
+        if (isset($this->userCache[$user])) {
+            return $this->userCache[$user];
+        }
+
+        $cached = $this->cacheUserGet($user);
+        if ($cached !== null) {
+            $this->userCache[$user] = $cached;
+            return $cached;
+        }
+
+        $info = $this->fetchUserData($user);
+        if (is_array($info) && !empty($info['dn'])) {
+            $this->userCache[$user] = $info;
+            $this->cacheUserStore($user, $info);
+        }
+        return $info;
+    }
+
+    /**
+     * Read a user's data from the filesystem cache.
+     *
+     * @param string $user
+     * @return array|null cached user info, or null if disabled, missing, expired, or unreadable
+     */
+    protected function cacheUserGet($user)
+    {
+        global $conf;
+        if (!$this->getConf('usefscache')) return null;
+
+        $cachefile = getCacheName($user, '.authldap-user');
+        $cachetime = @filemtime($cachefile);
+        if (!$cachetime) return null;
+        if ((time() - $cachetime) >= $conf['auth_security_timeout']) return null;
+
+        $data = @file_get_contents($cachefile);
+        if ($data === false) return null;
+
+        try {
+            $info = json_decode($data, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return null;
+        }
+        return is_array($info) ? $info : null;
+    }
+
+    /**
+     * Persist a user's data to the filesystem cache.
+     *
+     * @param string $user
+     * @param array $info
+     * @return void
+     */
+    protected function cacheUserStore($user, $info)
+    {
+        if (!$this->getConf('usefscache')) return;
+        $cachefile = getCacheName($user, '.authldap-user');
+        @file_put_contents($cachefile, json_encode($info, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Drop a user's data from both the in-memory and filesystem caches.
+     *
+     * @param string $user
+     * @return void
+     */
+    protected function cacheUserClear($user)
+    {
+        unset($this->userCache[$user]);
+        @unlink(getCacheName($user, '.authldap-user'));
     }
 
     /**
@@ -409,6 +481,7 @@ class auth_plugin_authldap extends AuthPlugin
             }
         }
 
+        $this->cacheUserClear($user);
         return true;
     }
 
