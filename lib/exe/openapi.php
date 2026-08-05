@@ -5,6 +5,13 @@ use dokuwiki\Remote\OpenApiDoc\OpenAPIGenerator;
 if (!defined('DOKU_INC')) define('DOKU_INC', __DIR__ . '/../../');
 require_once(DOKU_INC . 'inc/init.php');
 global $INPUT;
+global $lang;
+
+// API explorer and spec are only available to logged-in users
+if (!$INPUT->server->has('REMOTE_USER')) {
+    http_status(403);
+    die($lang['accessdenied']);
+}
 
 if ($INPUT->has('spec')) {
     header('Content-Type: application/json');
