@@ -5,10 +5,26 @@ use dokuwiki\Remote\OpenApiDoc\OpenAPIGenerator;
 if (!defined('DOKU_INC')) define('DOKU_INC', __DIR__ . '/../../');
 require_once(DOKU_INC . 'inc/init.php');
 global $INPUT;
+global $conf;
+global $USERINFO;
 global $lang;
 
-// API explorer and spec are only available to logged-in users
-if (!$INPUT->server->has('REMOTE_USER')) {
+// The API explorer and spec follow the same access gate as the JSON-RPC API:
+// the API must be enabled and the user must match the configured API users/groups
+$allowed = $conf['remote'] && trim($conf['remoteuser']) != '!!not set!!';
+if ($allowed && $conf['useacl']) {
+    if (trim($conf['remoteuser']) === '') {
+        // no restriction configured, any logged-in user may access
+        $allowed = $INPUT->server->has('REMOTE_USER');
+    } else {
+        $allowed = auth_isMember(
+            $conf['remoteuser'],
+            $INPUT->server->str('REMOTE_USER'),
+            (array)($USERINFO['grps'] ?? [])
+        );
+    }
+}
+if (!$allowed) {
     http_status(403);
     die($lang['accessdenied']);
 }
