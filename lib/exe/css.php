@@ -13,7 +13,8 @@ use dokuwiki\Cache\Cache;
 use dokuwiki\Extension\Event;
 
 if (!defined('DOKU_INC')) define('DOKU_INC', __DIR__ . '/../../');
-if (!defined('NOSESSION')) define('NOSESSION', true); // we do not use a session or authentication here (better caching)
+// Purging requires an authenticated administrator; regular requests do not need a session
+if (!defined('NOSESSION') && !isset($_GET['purge']) && !isset($_POST['purge'])) define('NOSESSION', true);
 if (!defined('DOKU_DISABLE_GZIP_OUTPUT')) define('DOKU_DISABLE_GZIP_OUTPUT', 1); // we gzip ourself here
 if (!defined('NL')) define('NL', "\n");
 require_once(DOKU_INC . 'inc/init.php');
