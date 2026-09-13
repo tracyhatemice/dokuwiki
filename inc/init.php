@@ -209,10 +209,6 @@ if (!headers_sent() && !defined('NOSESSION')) {
 }
 
 
-// we don't want a purge URL to be digged
-if (isset($_REQUEST['purge']) && !empty($_SERVER['HTTP_REFERER'])) unset($_REQUEST['purge']);
-
-
 // setup plugin controller class (can be overwritten in preload.php)
 global $plugin_controller_class, $plugin_controller;
 if (empty($plugin_controller_class)) $plugin_controller_class = PluginController::class;
@@ -245,6 +241,9 @@ Event::createAndTrigger('INIT_LANG_LOAD', $local, 'init_lang', true);
 if (!defined('NOSESSION')) {
     auth_setup();
 }
+
+// cache purges are restricted to administrators and direct requests
+init_purge_request();
 
 // setup mail system
 Mailer::configInit();
@@ -279,6 +278,24 @@ function init_session()
     }
 
     session_start();
+}
+
+/**
+ * Remove unauthorized cache purge requests
+ *
+ * Endpoints which run without a session have no authenticated administrator
+ * and therefore fail the admin check. Referrer checks prevent purge URLs from
+ * being followed by crawlers or embedded as resources.
+ */
+function init_purge_request()
+{
+    global $INPUT;
+
+    if (!$INPUT->has('purge')) return;
+
+    if (!empty($_SERVER['HTTP_REFERER']) || !auth_isadmin()) {
+        $INPUT->remove('purge');
+    }
 }
 
 
